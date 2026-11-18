@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>간격 카운팅 & 오버타임 알람 v1.4</title>
+    <style>
+        :root {
+            --bg-color: #0b1120;
+            --card-bg: #162032;
+            --input-bg: #0f172a;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-color: #3b82f6;
+            --overtime-color: #f59e0b;
+            --danger-color: #ef4444;
+            --border-color: #26354d;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            margin: 0;
+            padding: 16px;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 500px;
+            margin: 0 auto;
+            padding-bottom: 90px;
+        }
+
+        h2 {
+            text-align: center;
+            font-size: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+        }
+
+        .status-display {
+            text-align: center;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent-color);
+            margin-bottom: 8px;
+        }
+
+        .status-display.overtime {
+            color: var(--overtime-color);
+        }
+
+        .timer-display {
+            text-align: center;
+            font-size: 48px;
+            font-weight: 800;
+            margin: 10px 0;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .form-group {
+            margin-bottom: 14px;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        input, select {
+            width: 100%;
+            height: 46px;
+            padding: 0 12px;
+            background-color: var(--input-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            font-size: 15px;
+            color: var(--text-primary);
+            outline: none;
+        }
+
+        .grid-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .test-btn {
+            width: 100%;
+            height: 42px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 6px;
+        }
+
+        .bottom-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(11, 17, 32, 0.95);
+            padding: 12px 16px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: center;
+        }
+
+        .bottom-inner {
+            width: 100%;
+            max-width: 500px;
+        }
+
+        .main-btn {
+            width: 100%;
+            height: 52px;
+            border: none;
+            border-radius: 14px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        #startBtn { background: var(--accent-color); color: #fff; }
+        #stopBtn { background: var(--danger-color); color: #fff; display: none; }
+    </style>
+</head>
+<body>
+
+<h2>⏰ 간격 카운팅 알람 (v1.4)</h2>
+
+<div class="card">
+    <div class="status-display" id="statusText">대기 중</div>
+    <div class="timer-display" id="timeDisplay">00:00</div>
+</div>
+
+<div class="card">
+    <div class="grid-row">
+        <div class="form-group">
+            <label>최종 목표 시간 (분)</label>
+            <input type="number" id="targetMinutes" value="60" min="1">
+        </div>
+        <div class="form-group">
+            <label>카운팅 간격 (초)</label>
+            <input type="number" id="intervalSeconds" value="30" min="1">
+        </div>
+    </div>
+
+    <div class="grid-row">
+        <div class="form-group">
+            <label>오버타임 허용 (분)</label>
+            <input type="number" id="overtimeMinutes" value="30" min="0">
+        </div>
+        <div class="form-group">
+            <label>음성 언어</label>
+            <select id="langSelect">
+                <option value="ko">한국어</option>
+                <option value="en">영어</option>
+                <option value="ja">일본어</option>
+                <option value="zh">중국어</option>
+            </select>
+        </div>
+    </div>
+
+    <button type="button" class="test-btn" onclick="testVoice()">🔊 음성 테스트</button>
+</div>
+
+<div class="bottom-bar">
+    <div class="bottom-inner">
+        <button id="startBtn" class="main-btn" onclick="startAlarm()">알람 시작하기</button>
+        <button id="stopBtn" class="main-btn" onclick="stopAlarm()">알람 중지</button>
+    </div>
+</div>
+
+<script>
+    let timerId = null;
+    let elapsedSeconds = 0;
+    let targetSec = 0;
+    let intervalSec = 30;
+    let overtimeSec = 0;
+    let audioCtx = null;
+
+    function unlockAudio() {
+        if (!audioCtx) {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioCtx = new AudioContext();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    }
+
+    function speak(text) {
+        unlockAudio();
+        
+        if ('vibrate' in navigator) {
+            navigator.vibrate(100);
+        }
+
+        const lang = document.getElementById('langSelect').value;
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${lang}&q=${encodeURIComponent(text)}`;
+        
+        const audio = new Audio(ttsUrl);
+        audio.play().catch(err => {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = lang === 'ko' ? 'ko-KR' : lang;
+                window.speechSynthesis.speak(utterance);
+            }
+        });
+    }
+
+    function testVoice() {
+        unlockAudio();
+        const lang = document.getElementById('langSelect').value;
+        const msg = lang === 'ko' ? "30초, 음성 테스트입니다." : "30 seconds test.";
+        speak(msg);
+    }
+
+    function startAlarm() {
+        unlockAudio();
+
+        const targetMin = parseInt(document.getElementById('targetMinutes').value) || 60;
+        intervalSec = parseInt(document.getElementById('intervalSeconds').value) || 30;
+        const overtimeMin = parseInt(document.getElementById('overtimeMinutes').value) || 30;
+
+        targetSec = targetMin * 60;
+        overtimeSec = targetSec + (overtimeMin * 60);
+        elapsedSeconds = 0;
+
+        document.getElementById('startBtn').style.display = 'none';
+        document.getElementById('stopBtn').style.display = 'block';
+        document.getElementById('statusText').innerText = "알람 작동 중";
+        document.getElementById('statusText').classList.remove('overtime');
+
+        speak(document.getElementById('langSelect').value === 'ko' ? "알람을 시작합니다." : "Alarm started.");
+
+        timerId = setInterval(() => {
+            elapsedSeconds++;
+            const m = Math.floor(elapsedSeconds / 60);
+            const s = elapsedSeconds % 60;
+            document.getElementById('timeDisplay').innerText = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+
+            if (elapsedSeconds < targetSec && elapsedSeconds % intervalSec === 0) {
+                const text = langText(m, s, false);
+                speak(text);
+            }
+
+            if (elapsedSeconds === targetSec) {
+                const isKo = document.getElementById('langSelect').value === 'ko';
+                speak(isKo ? `${Math.floor(targetSec/60)}분, 목표 시간입니다.` : `Target time reached.`);
+                document.getElementById('statusText').innerText = "오버타임 구간";
+                document.getElementById('statusText').classList.add('overtime');
+            }
+
+            if (elapsedSeconds > targetSec && (elapsedSeconds - targetSec) % intervalSec === 0) {
+                const overSec = elapsedSeconds - targetSec;
+                const om = Math.floor(overSec / 60);
+                const os = overSec % 60;
+                const text = langText(om, os, true);
+                speak(text);
+                document.getElementById('statusText').innerText = "오버타임 진행 중";
+                document.getElementById('statusText').classList.add('overtime');
+            }
+
+            if (elapsedSeconds >= overtimeSec) {
+                const isKo = document.getElementById('langSelect').value === 'ko';
+                speak(isKo ? "오버타임이 종료되었습니다. 알람을 마칩니다." : "Alarm stopped.");
+                stopAlarm();
+            }
+        }, 1000);
+    }
+
+    function langText(m, s, isOver) {
+        const lang = document.getElementById('langSelect').value;
+        if (lang === 'ko') {
+            let t = "";
+            if (m > 0 && s > 0) t = `${m}분 ${s}초`;
+            else if (m > 0) t = `${m}분`;
+            else t = `${s}초`;
+            return isOver ? `${t} 초과` : t;
+        } else {
+            let t = "";
+            if (m > 0 && s > 0) t = `${m} minutes ${s} seconds`;
+            else if (m > 0) t = `${m} minutes`;
+            else t = `${s} seconds`;
+            return isOver ? `${t} over` : t;
+        }
+    }
+
+    function stopAlarm() {
+        clearInterval(timerId);
+        if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel();
+        }
+        document.getElementById('startBtn').style.display = 'block';
+        document.getElementById('stopBtn').style.display = 'none';
+        document.getElementById('statusText').innerText = "중지됨";
+        document.getElementById('statusText').classList.remove('overtime');
+    }
+</script>
+
+</body>
+</html>
